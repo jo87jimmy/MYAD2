@@ -69,48 +69,48 @@ def cvt2heatmap(gray):
     return heatmap
 
 # === 評估函式draem ===
-def evaluation_draem(student_encoder, student_decoder, dataloader, device, _class_=None):  
-    """適合 DRAEM 架構的評估函數"""  
-    student_encoder.eval()  # 設為推論模式  
-    student_decoder.eval()  
-    gt_list_px = []  # pixel-level ground truth  
-    pr_list_px = []  # pixel-level prediction  
-    gt_list_sp = []  # image-level ground truth  
-    pr_list_sp = []  # image-level prediction  
-    aupro_list = []  # PRO 評估  
-      
-    with torch.no_grad():  
-        for img, gt, label, _ in dataloader:  # 從 dataloader 取資料  
-            img = img.to(device)  # 把圖片送到 GPU/CPU  
-              
-            # DRAEM 架構的推理流程  
-            student_recon = student_encoder(img)  # 重建影像  
-            student_input = torch.cat([img, student_recon], dim=1)  # 串接原圖與重建圖  
-            student_seg = student_decoder(student_input)  # 異常分割  
-              
-            # 計算異常圖：使用重建誤差  
-            anomaly_map = torch.mean((img - student_recon) ** 2, dim=1).squeeze()  
-            anomaly_map = anomaly_map.cpu().numpy()  
-            anomaly_map = gaussian_filter(anomaly_map, sigma=4)  # 高斯濾波平滑  
-  
-            # 二值化 ground truth  
-            gt[gt > 0.5] = 1  
-            gt[gt <= 0.5] = 0  
-            if label.item() != 0:  # 如果是瑕疵類別  
-                aupro_list.append(  
-                    compute_pro(  
-                        gt.squeeze(0).cpu().numpy().astype(int),  
-                        anomaly_map[np.newaxis, :, :]))  
-              
-            # 累積像素級 ground truth 與預測  
-            gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())  
-            pr_list_px.extend(anomaly_map.ravel())  
-            # 累積圖片級 (是否有異常)  
-            gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))  
-            pr_list_sp.append(np.max(anomaly_map))  
-  
-        auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)  # 計算像素級 AUC  
-        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  # 計算圖片級 AUC  
+def evaluation_draem(student_encoder, student_decoder, dataloader, device, _class_=None):
+    """適合 DRAEM 架構的評估函數"""
+    student_encoder.eval()  # 設為推論模式
+    student_decoder.eval()
+    gt_list_px = []  # pixel-level ground truth
+    pr_list_px = []  # pixel-level prediction
+    gt_list_sp = []  # image-level ground truth
+    pr_list_sp = []  # image-level prediction
+    aupro_list = []  # PRO 評估
+
+    with torch.no_grad():
+        for img, gt, label, _ in dataloader:  # 從 dataloader 取資料
+            img = img.to(device)  # 把圖片送到 GPU/CPU
+
+            # DRAEM 架構的推理流程
+            student_recon = student_encoder(img)  # 重建影像
+            student_input = torch.cat([img, student_recon], dim=1)  # 串接原圖與重建圖
+            student_seg = student_decoder(student_input)  # 異常分割
+
+            # 計算異常圖：使用重建誤差
+            anomaly_map = torch.mean((img - student_recon) ** 2, dim=1).squeeze()
+            anomaly_map = anomaly_map.cpu().numpy()
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)  # 高斯濾波平滑
+
+            # 二值化 ground truth
+            gt[gt > 0.5] = 1
+            gt[gt <= 0.5] = 0
+            if label.item() != 0:  # 如果是瑕疵類別
+                aupro_list.append(
+                    compute_pro(
+                        gt.squeeze(0).cpu().numpy().astype(int),
+                        anomaly_map[np.newaxis, :, :]))
+
+            # 累積像素級 ground truth 與預測
+            gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())
+            pr_list_px.extend(anomaly_map.ravel())
+            # 累積圖片級 (是否有異常)
+            gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))
+            pr_list_sp.append(np.max(anomaly_map))
+
+        auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)  # 計算像素級 AUC
+        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  # 計算圖片級 AUC
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 # === 評估函式 ===
 def evaluation(encoder, bn, decoder, dataloader, device, _class_=None):
@@ -190,6 +190,78 @@ def test(_class_):
 
 import os  # 載入作業系統模組，用於檔案路徑處理、建立資料夾
 
+
+def visualizationDraem(_arch_, _class_, save_path=None, ckp_path=None):
+    print(f"🖼️ 開始可視化類別: {_class_}")
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    data_transform, gt_transform = get_data_transforms(256, 256)
+    test_path = f'./mvtec/{_class_}'
+
+    if ckp_path is None:
+        ckp_path = f'./checkpoints/{_arch_}_{_class_}.pth'
+
+    # 建立測試資料集
+    test_data = MVTecDataset(root=test_path,
+                             transform=data_transform,
+                             gt_transform=gt_transform,
+                             phase="test")
+    test_dataloader = torch.utils.data.DataLoader(test_data,
+                                                  batch_size=1,
+                                                  shuffle=False)
+
+    # ✅ 修改：使用 DRAEM 的 ReconstructiveSubNetwork 和 DiscriminativeSubNetwork
+    from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork
+
+    student_encoder = ReconstructiveSubNetwork(in_channels=3, out_channels=3)
+    student_decoder = DiscriminativeSubNetwork(in_channels=6, out_channels=2)
+
+    student_encoder = student_encoder.to(device)
+    student_decoder = student_decoder.to(device)
+    student_encoder.eval()
+    student_decoder.eval()
+
+    # ✅ 修改：載入 DRAEM 格式的檢查點
+    ckp = torch.load(ckp_path, map_location=device)
+    student_encoder.load_state_dict(ckp['encoder'])
+    student_decoder.load_state_dict(ckp['decoder'])
+
+    # 建立輸出資料夾
+    save_dir = save_path if save_path else f'results/{_class_}'
+    os.makedirs(save_dir, exist_ok=True)
+
+    count = 0
+    with torch.no_grad():
+        for img, gt, label, _ in test_dataloader:
+            if label.item() == 0:  # 跳過正常樣本
+                continue
+
+            img = img.to(device)
+
+            # ✅ 修改：使用 DRAEM 的推理流程
+            student_recon = student_encoder(img)  # 重建影像
+            student_input = torch.cat([img, student_recon], dim=1)  # 串接原圖與重建圖
+            student_seg = student_decoder(student_input)  # 異常分割
+
+            # 從分割結果提取異常圖
+            anomaly_map = student_seg[:, 1:, :, :].cpu().numpy()[0, 0]  # 取異常通道
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)
+            ano_map = min_max_norm(anomaly_map)
+            ano_map = cvt2heatmap(ano_map * 255)
+
+            # 處理原圖
+            img_np = img.permute(0, 2, 3, 1).cpu().numpy()[0] * 255
+            img_np = cv2.cvtColor(img_np.astype(np.uint8), cv2.COLOR_BGR2RGB)
+            img_norm = np.uint8(min_max_norm(img_np) * 255)
+
+            overlay = show_cam_on_image(img_norm, ano_map)
+
+            # 儲存結果
+            cv2.imwrite(f"{save_dir}/{count:03d}_org.png", img_norm)
+            cv2.imwrite(f"{save_dir}/{count:03d}_ad.png", overlay)
+            count += 1
+
+    print(f"✅ 可視化完成，共儲存 {count} 張圖片至 {save_dir}")
 
 # =============================
 # 函式：可視化模型輸出結果

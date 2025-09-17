@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader  # PyTorch 的資料載入器
 from dataset import MVTecDataset  # MVTec 資料集類別
 import torch.backends.cudnn as cudnn  # CUDA cuDNN 加速
 import argparse  # 命令列參數處理
-from test import evaluation,evaluation_draem, visualization, test  # 測試、評估與可視化函式
+from test import evaluation,evaluation_draem, visualization,visualizationDraem, test  # 測試、評估與可視化函式
 from torch.nn import functional as F  # 引入 PyTorch 的函式介面
 from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork  # 假設你的 DRAEM 定義在 models/draem.py
 
@@ -205,7 +205,7 @@ if __name__ == '__main__':
                       index=False)
 
     # 🔥 訓練結束後自動產生可視化結果
-    visualization(args.arch,
+    visualizationDraem(args.arch,
                   args.category,
                   ckp_path=best_ckp,
                   save_path=save_visual_path)

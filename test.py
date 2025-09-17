@@ -68,7 +68,50 @@ def cvt2heatmap(gray):
                                 cv2.COLORMAP_JET)  # OpenCV colormap
     return heatmap
 
-
+# === 評估函式draem ===
+def evaluation_draem(student_encoder, student_decoder, dataloader, device, _class_=None):  
+    """適合 DRAEM 架構的評估函數"""  
+    student_encoder.eval()  # 設為推論模式  
+    student_decoder.eval()  
+    gt_list_px = []  # pixel-level ground truth  
+    pr_list_px = []  # pixel-level prediction  
+    gt_list_sp = []  # image-level ground truth  
+    pr_list_sp = []  # image-level prediction  
+    aupro_list = []  # PRO 評估  
+      
+    with torch.no_grad():  
+        for img, gt, label, _ in dataloader:  # 從 dataloader 取資料  
+            img = img.to(device)  # 把圖片送到 GPU/CPU  
+              
+            # DRAEM 架構的推理流程  
+            student_recon = student_encoder(img)  # 重建影像  
+            student_input = torch.cat([img, student_recon], dim=1)  # 串接原圖與重建圖  
+            student_seg = student_decoder(student_input)  # 異常分割  
+              
+            # 計算異常圖：使用重建誤差  
+            anomaly_map = torch.mean((img - student_recon) ** 2, dim=1).squeeze()  
+            anomaly_map = anomaly_map.cpu().numpy()  
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)  # 高斯濾波平滑  
+  
+            # 二值化 ground truth  
+            gt[gt > 0.5] = 1  
+            gt[gt <= 0.5] = 0  
+            if label.item() != 0:  # 如果是瑕疵類別  
+                aupro_list.append(  
+                    compute_pro(  
+                        gt.squeeze(0).cpu().numpy().astype(int),  
+                        anomaly_map[np.newaxis, :, :]))  
+              
+            # 累積像素級 ground truth 與預測  
+            gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())  
+            pr_list_px.extend(anomaly_map.ravel())  
+            # 累積圖片級 (是否有異常)  
+            gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))  
+            pr_list_sp.append(np.max(anomaly_map))  
+  
+        auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)  # 計算像素級 AUC  
+        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  # 計算圖片級 AUC  
+    return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 # === 評估函式 ===
 def evaluation(encoder, bn, decoder, dataloader, device, _class_=None):
     bn.eval()  # 設為推論模式

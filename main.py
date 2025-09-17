@@ -146,12 +146,12 @@ def train(_arch_, _class_, epochs, save_pth_path):
             f"📘 Epoch [{epoch + 1}/{epochs}] | Loss: {np.mean(loss_list):.4f}")
 
         # 每個 epoch 都進行一次評估（使用學生模型）
-        # 需要添加 bn 層  
-        #torch.nn.Identity() 作為一個恆等映射層，不會改變輸入數據，只是為了滿足 evaluation 函數的參數要求 
+        # 需要添加 bn 層
+        #torch.nn.Identity() 作為一個恆等映射層，不會改變輸入數據，只是為了滿足 evaluation 函數的參數要求
         #由於 torch.nn.Identity() 不改變輸入，所以 bn(inputs) 等同於直接傳遞 inputs，這樣就能讓您的 DREAM 架構正常工作。
-        bn = torch.nn.Identity()  # 或者使用適當的 batch normalization 層 
+        # bn = torch.nn.Identity()  # 或者使用適當的 batch normalization 層
         auroc_px, auroc_sp, aupro_px = dream_evaluation(student_encoder,
-                                                  bn,
+                                                #   bn,
                                                   student_decoder,
                                                   test_dataloader, device)
         # auroc_px, auroc_sp, aupro_px = evaluation(student_encoder,

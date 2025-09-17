@@ -266,57 +266,58 @@ def evaluation(encoder, bn, decoder, dataloader, device, _class_=None):
         auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  # 計算圖片級 AUC
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 
-def dream_evaluation(student_encoder, student_decoder, test_dataloader, device, _class_=None):  
-    """  
-    專門為 DREAM 架構設計的評估函數  
-    處理重建+分割的兩階段流程  
-    """  
-    student_encoder.eval()  
-    student_decoder.eval()  
-      
-    gt_list_px = []  # pixel-level ground truth  
-    pr_list_px = []  # pixel-level prediction  
-    gt_list_sp = []  # image-level ground truth  
-    pr_list_sp = []  # image-level prediction  
-    aupro_list = []  # PRO 評估  
-      
-    with torch.no_grad():  
-        for img, gt, label, _ in test_dataloader:  
-            img = img.to(device)  
-              
-            # 第一階段：重建  
-            reconstructed = student_encoder(img)  # 3通道重建圖像  
-              
-            # 第二階段：分割（串接原圖和重建圖像）  
-            concat_input = torch.cat([img, reconstructed], dim=1)  # 6通道輸入  
-            segmentation = student_decoder(concat_input)  # 分割輸出  
-              
-            # 計算異常圖：比較原圖和重建圖像  
-            anomaly_map, _ = cal_anomaly_map([img], [reconstructed],   
-                                           img.shape[-1], amap_mode='a')  
-            anomaly_map = gaussian_filter(anomaly_map, sigma=4)  
-              
-            # 二值化 ground truth  
-            gt[gt > 0.5] = 1  
-            gt[gt <= 0.5] = 0  
-              
-            if label.item() != 0:  # 如果是瑕疵類別  
-                aupro_list.append(  
-                    compute_pro(  
-                        gt.squeeze(0).cpu().numpy().astype(int),  
-                        anomaly_map[np.newaxis, :, :]))  
-              
-            # 累積像素級 ground truth 與預測  
-            gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())  
-            pr_list_px.extend(anomaly_map.ravel())  
-              
-            # 累積圖片級 (是否有異常)  
-            gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))  
-            pr_list_sp.append(np.max(anomaly_map))  
-      
-    auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)  
-    auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  
-      
+def dream_evaluation(student_encoder, student_decoder, test_dataloader, device, _class_=None):
+    """
+    專門為 DREAM 架構設計的評估函數
+    處理重建+分割的兩階段流程
+    """
+    student_encoder.eval()
+    student_decoder.eval()
+
+    gt_list_px = []  # pixel-level ground truth
+    pr_list_px = []  # pixel-level prediction
+    gt_list_sp = []  # image-level ground truth
+    pr_list_sp = []  # image-level prediction
+    aupro_list = []  # PRO 評估
+
+    with torch.no_grad():
+        for img, gt, label, _ in test_dataloader:
+            img = img.to(device)
+
+            # 第一階段：重建
+            reconstructed = student_encoder(img)  # 3通道重建圖像
+
+            # 第二階段：分割（串接原圖和重建圖像）
+            concat_input = torch.cat([img, reconstructed], dim=1)  # 6通道輸入
+            # 用於蒸餾訓練而評估時仍使用重建比較，則可以移除該變數。
+            segmentation = student_decoder(concat_input)  # 分割輸出
+
+            # 計算異常圖：比較原圖和重建圖像
+            anomaly_map, _ = cal_anomaly_map([img], [reconstructed],
+                                           img.shape[-1], amap_mode='a')
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)
+
+            # 二值化 ground truth
+            gt[gt > 0.5] = 1
+            gt[gt <= 0.5] = 0
+
+            if label.item() != 0:  # 如果是瑕疵類別
+                aupro_list.append(
+                    compute_pro(
+                        gt.squeeze(0).cpu().numpy().astype(int),
+                        anomaly_map[np.newaxis, :, :]))
+
+            # 累積像素級 ground truth 與預測
+            gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())
+            pr_list_px.extend(anomaly_map.ravel())
+
+            # 累積圖片級 (是否有異常)
+            gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))
+            pr_list_sp.append(np.max(anomaly_map))
+
+    auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)
+    auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)
+
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 
 

@@ -114,42 +114,52 @@ def evaluation_draem(student_encoder, student_decoder, dataloader, device, _clas
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 
 # === 評估函式 ===
-def evaluation2(encoder, decoder, dataloader, device, _class_=None):
-    decoder.eval()
+def evaluation2(student_encoder, student_decoder, dataloader, device, _class_=None):
+    # student_encoder.eval()
+    student_decoder.eval()
+
     gt_list_px = []  # pixel-level ground truth
     pr_list_px = []  # pixel-level prediction
     gt_list_sp = []  # image-level ground truth
     pr_list_sp = []  # image-level prediction
     aupro_list = []  # PRO 評估
+
     with torch.no_grad():
         for img, gt, label, _ in dataloader:  # 從 dataloader 取資料
-
             img = img.to(device)  # 把圖片送到 GPU/CPU
-            inputs = encoder(img)  # 取 encoder 特徵
-            outputs = decoder(inputs)  # 解碼器輸出
-            anomaly_map, _ = cal_anomaly_map(inputs,
-                                             outputs,
-                                             img.shape[-1],
-                                             amap_mode='a')  # 計算 anomaly map
+
+            # 學生模型推理
+            student_recon = student_encoder(img)
+            student_input = torch.cat([img, student_recon], dim=1)
+            student_seg = student_decoder(student_input)
+
+            # 計算 anomaly map（可以依照你的 cal_anomaly_map 函式）
+            anomaly_map, _ = cal_anomaly_map(student_input, student_seg, img.shape[-1], amap_mode='a')
             anomaly_map = gaussian_filter(anomaly_map, sigma=4)  # 高斯濾波平滑
 
             # 二值化 ground truth
             gt[gt > 0.5] = 1
             gt[gt <= 0.5] = 0
+
             if label.item() != 0:  # 如果是瑕疵類別
                 aupro_list.append(
                     compute_pro(
                         gt.squeeze(0).cpu().numpy().astype(int),
-                        anomaly_map[np.newaxis, :, :]))
+                        anomaly_map[np.newaxis, :, :])
+                )
+
             # 累積像素級 ground truth 與預測
             gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())
             pr_list_px.extend(anomaly_map.ravel())
+
             # 累積圖片級 (是否有異常)
             gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))
             pr_list_sp.append(np.max(anomaly_map))
 
-        auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)  # 計算像素級 AUC
-        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)  # 計算圖片級 AUC
+        # 計算像素級與圖片級 AUROC
+        auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)
+        auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)
+
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 
 # === 評估函式 ===

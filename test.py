@@ -271,7 +271,7 @@ def dream_evaluation(student_encoder, student_decoder, test_dataloader, device, 
     專門為 DREAM 架構設計的評估函數
     處理重建+分割的兩階段流程
     """
-    student_encoder.eval()
+    # student_encoder.eval()
     student_decoder.eval()
 
     gt_list_px = []  # pixel-level ground truth

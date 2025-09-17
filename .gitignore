@@ -9,6 +9,7 @@
 data/
 datasets/
 mvtec/
+dtd/
 # 忽略壓縮文件
 *.zip
 *.tar.gz

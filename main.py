@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader  # PyTorch 的資料載入器
 from dataset import MVTecDataset  # MVTec 資料集類別
 import torch.backends.cudnn as cudnn  # CUDA cuDNN 加速
 import argparse  # 命令列參數處理
-from test import evaluation,evaluation_draem, visualization,visualizationDraem, test  # 測試、評估與可視化函式
+from test import evaluation,evaluation_draem, visualization,visualizationDraem,evaluation2, test  # 測試、評估與可視化函式
 from torch.nn import functional as F  # 引入 PyTorch 的函式介面
 from model_unet import ReconstructiveSubNetwork, DiscriminativeSubNetwork  # 假設你的 DRAEM 定義在 models/draem.py
 
@@ -146,7 +146,7 @@ def train(_arch_, _class_, epochs, save_pth_path):
             f"📘 Epoch [{epoch + 1}/{epochs}] | Loss: {np.mean(loss_list):.4f}")
 
         # 每個 epoch 都進行一次評估（使用學生模型）
-        auroc_px, auroc_sp, aupro_px = evaluation_draem(student_encoder,
+        auroc_px, auroc_sp, aupro_px = evaluation2(student_encoder,
                                                   student_decoder,
                                                   test_dataloader, device)
         # auroc_px, auroc_sp, aupro_px = evaluation(student_encoder,

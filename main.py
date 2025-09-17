@@ -146,7 +146,10 @@ def train(_arch_, _class_, epochs, save_pth_path):
             f"📘 Epoch [{epoch + 1}/{epochs}] | Loss: {np.mean(loss_list):.4f}")
 
         # 每個 epoch 都進行一次評估（使用學生模型）
-        auroc_px, auroc_sp, aupro_px = evaluation2(student_encoder,
+        # 需要添加 bn 層  
+        bn = torch.nn.Identity()  # 或者使用適當的 batch normalization 層 
+        auroc_px, auroc_sp, aupro_px = evaluation(student_encoder,
+                                                  bn,
                                                   student_decoder,
                                                   test_dataloader, device)
         # auroc_px, auroc_sp, aupro_px = evaluation(student_encoder,

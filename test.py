@@ -48,6 +48,56 @@ def cal_anomaly_map(fs_list, ft_list, out_size=224, amap_mode='mul'):
             anomaly_map += a_map
     return anomaly_map, a_map_list  # 回傳總體 anomaly map 以及每層的 anomaly map
 
+def cal_anomaly_map2(fs_list, ft_list, out_size=224, amap_mode='mul'):
+    """
+    計算 anomaly map
+    fs_list: student 特徵 tensor 或 list of tensor
+    ft_list: target 特徵 tensor 或 list of tensor (原圖或教師重建)
+    amap_mode: 'mul' 或 'add' 聚合多層 anomaly map
+    """
+    if not isinstance(fs_list, list):
+        fs_list = [fs_list]
+    if not isinstance(ft_list, list):
+        ft_list = [ft_list]
+
+    if amap_mode == 'mul':
+        anomaly_map = np.ones([out_size, out_size])
+    else:
+        anomaly_map = np.zeros([out_size, out_size])
+
+    a_map_list = []
+
+    for i in range(len(ft_list)):
+        fs = fs_list[i]
+        ft = ft_list[i]
+
+        # 檢查通道匹配
+        if fs.shape[1] != ft.shape[1]:
+            raise ValueError(f"fs channels ({fs.shape[1]}) != ft channels ({ft.shape[1]})")
+
+        # 計算 cosine similarity
+        a_map = 1 - F.cosine_similarity(fs, ft, dim=1)  # channel 維度
+
+        # 增加 channel 維度
+        a_map = torch.unsqueeze(a_map, dim=1)
+
+        # 上採樣至輸出大小
+        a_map = F.interpolate(a_map,
+                              size=out_size,
+                              mode='bilinear',
+                              align_corners=True)
+
+        a_map_np = a_map[0, 0, :, :].cpu().detach().numpy()
+        a_map_list.append(a_map_np)
+
+        # 聚合
+        if amap_mode == 'mul':
+            anomaly_map *= a_map_np
+        else:
+            anomaly_map += a_map_np
+
+    return anomaly_map, a_map_list
+
 
 # === 疊加 anomaly map 到原圖 ===
 def show_cam_on_image(img, anomaly_map):
@@ -114,49 +164,63 @@ def evaluation_draem(student_encoder, student_decoder, dataloader, device, _clas
     return auroc_px, auroc_sp, round(np.mean(aupro_list), 3)
 
 # === 評估函式 ===
-def evaluation2(student_encoder, student_decoder, dataloader, device, _class_=None):
+def evaluation2(student_encoder, student_decoder, dataloader, device, _class_=None, teacher_encoder=None):
+    """
+    評估學生模型 anomaly detection 表現
+    teacher_encoder 可選，用於 anomaly map 計算
+    """
     # student_encoder.eval()
     student_decoder.eval()
 
-    gt_list_px = []  # pixel-level ground truth
-    pr_list_px = []  # pixel-level prediction
-    gt_list_sp = []  # image-level ground truth
-    pr_list_sp = []  # image-level prediction
-    aupro_list = []  # PRO 評估
+    gt_list_px = []
+    pr_list_px = []
+    gt_list_sp = []
+    pr_list_sp = []
+    aupro_list = []
 
     with torch.no_grad():
-        for img, gt, label, _ in dataloader:  # 從 dataloader 取資料
-            img = img.to(device)  # 把圖片送到 GPU/CPU
+        for img, gt, label, _ in dataloader:
+            img = img.to(device)
 
-            # 學生模型推理
-            student_recon = student_encoder(img)
-            student_input = torch.cat([img, student_recon], dim=1)
-            student_seg = student_decoder(student_input)
+            # 學生模型重建 & segmentation
+            student_recon = student_encoder(img)  # [B,3,H,W]
+            student_input = torch.cat([img, student_recon], dim=1)  # [B,6,H,W]
+            student_seg = student_decoder(student_input)  # [B,2,H,W]
 
-            # 計算 anomaly map（可以依照你的 cal_anomaly_map 函式）
-            anomaly_map, _ = cal_anomaly_map(student_input, student_seg, img.shape[-1], amap_mode='a')
-            anomaly_map = gaussian_filter(anomaly_map, sigma=4)  # 高斯濾波平滑
+            # anomaly map 計算
+            # 如果有教師模型可用教師重建
+            if teacher_encoder is not None:
+                teacher_recon = teacher_encoder(img)
+                fs = student_recon
+                ft = teacher_recon
+            else:
+                # 單純用學生重建 vs 原圖
+                fs = student_recon
+                ft = img
+
+            anomaly_map, _ = cal_anomaly_map2(fs, ft, out_size=img.shape[-1], amap_mode='mul')
+            anomaly_map = gaussian_filter(anomaly_map, sigma=4)
 
             # 二值化 ground truth
             gt[gt > 0.5] = 1
             gt[gt <= 0.5] = 0
 
-            if label.item() != 0:  # 如果是瑕疵類別
+            if label.item() != 0:  # 有瑕疵
                 aupro_list.append(
                     compute_pro(
                         gt.squeeze(0).cpu().numpy().astype(int),
                         anomaly_map[np.newaxis, :, :])
                 )
 
-            # 累積像素級 ground truth 與預測
+            # 累積像素級
             gt_list_px.extend(gt.cpu().numpy().astype(int).ravel())
             pr_list_px.extend(anomaly_map.ravel())
 
-            # 累積圖片級 (是否有異常)
+            # 累積圖片級
             gt_list_sp.append(np.max(gt.cpu().numpy().astype(int)))
             pr_list_sp.append(np.max(anomaly_map))
 
-        # 計算像素級與圖片級 AUROC
+        # 計算 AUROC
         auroc_px = round(roc_auc_score(gt_list_px, pr_list_px), 3)
         auroc_sp = round(roc_auc_score(gt_list_sp, pr_list_sp), 3)
 

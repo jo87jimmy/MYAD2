@@ -125,8 +125,9 @@ def train(_arch_, _class_, epochs, save_pth_path):
     loss_focal = FocalLoss()
 
     # 蒸餾損失 (Distillation Loss) - 學生與教師比較
-    loss_distill_recon = torch.nn.modules.loss.MSELoss(
-    )  # 重建部分，學生模仿老師的輸出，MSE 或 L1 都可以
+    # loss_distill_recon = torch.nn.modules.loss.MSELoss(
+    # )
+    # 重建部分，學生模仿老師的輸出，MSE 或 L1 都可以
     loss_kldiv = torch.nn.KLDivLoss(
         reduction='batchmean')  # 分割部分，用 KL 散度衡量機率分佈
 
